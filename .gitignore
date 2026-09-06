@@ -1,0 +1,19 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+# secrets / local state — never commit
+.env
+.env.local
+*.pem
+*.key
+*.p12
+*license*.json
+extendo.config.json
+# driver binaries — link releases only (AGENTS.md §7.2)
+driver/*.sys
+driver/*.cat
+driver/*.inf
+driver/bin/
+# local diag bundles
+extendo-diag-*/
