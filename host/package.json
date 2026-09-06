@@ -1,12 +1,12 @@
 {
   "name": "extendo-host",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "extendo host service — Phase 0 (TypeScript runnable core; Rust port path kept identical)",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test tests/transport.test.js tests/license.test.js tests/server.test.js",
+    "test": "node --test tests/transport.test.js tests/license.test.js tests/server.test.js tests/vdd.test.js tests/capture.test.js tests/iface.test.js tests/input.test.js tests/adaptive.test.js tests/startup.test.js",
     "typecheck": "npx -y tsc --noEmit"
   },
   "engines": {

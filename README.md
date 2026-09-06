@@ -20,6 +20,19 @@ node client-web/serve.js 8080
 Overlay shows `rtt · fps · drops`. Phase 0 streams a test pattern; Phase 1
 plugs real IddCx capture + H.264 into the same `Transport` + `VideoConfig`.
 
+## Extend demo (Phase 1, no driver needed — stub registry)
+
+```powershell
+# extend a 720p virtual monitor (idempotent: reuses a matching one)
+Invoke-RestMethod -Method Post http://127.0.0.1:9577/displays `
+  -ContentType "application/json" -Body '{"mode":{"width":1280,"height":720,"fps":30},"edid":"phone-720p"}'
+# bind capture to it, then open the viewer — overlay shows the synced mode
+Invoke-RestMethod -Method Post http://127.0.0.1:9577/capture `
+  -ContentType "application/json" -Body '{"backend":"test","monitor_id":1}'
+# depart when done
+Invoke-RestMethod -Method Delete http://127.0.0.1:9577/displays/1
+```
+
 ## Layout
 
 - `proto/` — `extendo.proto` + `PROTOCOL.md` (add-only field numbers)

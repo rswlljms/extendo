@@ -1,18 +1,28 @@
-// Host HTTP service — Phase 0 (PROTOCOL.md).
-// Endpoints: /info /ping /stats /frames(SSE test pattern) /pair /input.
-// Real H.264 capture (Rust) replaces only the frame payload in Phase 1.
+// Host HTTP service — Phase 1 (PROTOCOL.md).
+// Endpoints: /info /ping /stats /best /frames(SSE test pattern) /pair /input
+//   /quality /displays /capture. Real H.264 capture (Rust) replaces only the
+//   frame payload; display/capture contracts stay stable.
 import { createServer } from "node:http";
 import { listCandidates, probeCandidates, pickBest } from "./transport.js";
 import { canUse, validateLicense, maxVideoForTier } from "./license.js";
+import { addMonitor, removeMonitor, listMonitors, ensureMonitor, EDID_PROFILES } from "./vdd.js";
+import { currentSource, selectSource, syncVideoToMode } from "./capture.js";
+import { createInput } from "./input.js";
+import { createAdaptive } from "./adaptive.js";
+import { createThrottle } from "./throttle.js";
 import { qrPayload } from "./config.js";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.3.0";
 
 /**
  * @param {any} cfg config object (see config.js)
  */
 export function createHost(cfg) {
   const stats = { fps: cfg.video.fps, drops: 0, bitrate_kbps: cfg.video.bitrate_kbps, rtt_ms: -1 };
+  const report = { fps: 0, drops: 0, ts_ms: 0 }; // last viewer POST /report
+  const input = createInput();
+  const adaptive = createAdaptive();
+  const throttle = createThrottle();
   let seq = 0;
   const t0 = Date.now();
 
@@ -25,6 +35,20 @@ export function createHost(cfg) {
       });
     });
 
+  // Mutation + video endpoints require the pairing token/PIN (header, query, or body).
+  const authed = (req, url, body) =>
+    req.headers["x-extendo-token"] === cfg.token ||
+    req.headers["x-extendo-token"] === cfg.pin ||
+    url.searchParams.get("token") === cfg.token ||
+    url.searchParams.get("token") === cfg.pin ||
+    (body && (body.token === cfg.token || body.token === cfg.pin));
+
+  const needAuth = (res) => {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "pairing token required" }));
+    return true;
+  };
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://x");
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -34,12 +58,15 @@ export function createHost(cfg) {
 
     if (url.pathname === "/info" && req.method === "GET") {
       const cands = listCandidates(cfg.port);
+      const displays = await listMonitors();
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
         name: cfg.device_name, version: VERSION,
         transports: cands, video: cfg.video,
         qr: cands.filter((c) => c.kind !== "localhost").map((c) => qrPayload(c.addr, c.port, cfg.token)),
         tier: validateLicense(cfg.license).tier,
+        displays: displays.monitors, displays_stub: displays.stub,
+        capture: currentSource(),
       }));
       return;
     }
@@ -67,6 +94,7 @@ export function createHost(cfg) {
     }
 
     if (url.pathname === "/frames" && req.method === "GET") {
+      if (!authed(req, url)) { needAuth(res); return; }
       // SSE test pattern: moving box, normalized coords. Viewer renders on canvas.
       res.writeHead(200, {
         "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive",
@@ -86,8 +114,15 @@ export function createHost(cfg) {
     }
 
     if (url.pathname === "/pair" && req.method === "POST") {
+      const ip = req.socket.remoteAddress || "unknown";
+      if (throttle.blocked(ip)) {
+        res.writeHead(429, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ accepted: false, reason: "too many attempts, retry later" }));
+        return;
+      }
       const body = await readBody(req);
       const ok = body.token === cfg.token || body.token === cfg.pin;
+      throttle.attempt(ip, ok);
       const { tier } = validateLicense(cfg.license);
       const ceiling = maxVideoForTier(tier);
       const video = {
@@ -105,17 +140,40 @@ export function createHost(cfg) {
 
     if (url.pathname === "/input" && req.method === "POST") {
       const body = await readBody(req);
-      // Phase 2: route to SendInput(). Phase 0: validate shape + count.
-      const valid = typeof body.type === "string";
-      if (!valid) stats.drops += 1;
-      res.writeHead(valid ? 200 : 400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: valid }));
+      if (!authed(req, url, body)) { needAuth(res); return; }
+      // Touch/keyboard backchannel → SendInput bridge (Phase 2). Touch/Pro-gated.
+      const gated = body.type === "touch" || body.type === "key";
+      if (gated) {
+        const { tier } = validateLicense(cfg.license);
+        if (!canUse("touch", tier)) {
+          res.writeHead(402, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, reason: "touch/keyboard input requires Pro", tier }));
+          return;
+        }
+      }
+      const r = input.handle(body);
+      if (!r.ok) stats.drops += 1;
+      res.writeHead(r.ok ? 200 : 400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(r));
+      return;
+    }
+
+    if (url.pathname === "/report" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!authed(req, url, body)) { needAuth(res); return; }
+      report.fps = Number(body.fps) || 0;
+      report.drops = Number(body.drops) || 0;
+      report.ts_ms = Date.now();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, video: cfg.video, adaptive: adaptive.state.low ? "low" : "high" }));
       return;
     }
 
     if (url.pathname === "/quality" && req.method === "POST") {
       // Gated by entitlement: free tier cannot exceed 720p30.
       const body = await readBody(req);
+      if (!authed(req, url, body)) { needAuth(res); return; }
+      if (typeof body.auto === "boolean") adaptive.state.auto = body.auto;
       const { tier } = validateLicense(cfg.license);
       const ask1080p60 =
         (body.width || 0) > 1280 || (body.height || 0) > 720 || (body.fps || 0) > 30;
@@ -138,9 +196,71 @@ export function createHost(cfg) {
       return;
     }
 
+    if (url.pathname === "/displays" && req.method === "GET") {
+      if (!authed(req, url)) { needAuth(res); return; }
+      const list = await listMonitors();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(list));
+      return;
+    }
+
+    if (url.pathname === "/displays" && req.method === "POST") {
+      // Body: DisplayAdd {mode:{width,height,fps}, edid}. "extend" creates-or-reuses.
+      const body = await readBody(req);
+      if (!authed(req, url, body)) { needAuth(res); return; }
+      const extend = body.extend !== false;
+      const profile = body.edid && EDID_PROFILES[body.edid];
+      const mode = body.mode || profile || { width: 1280, height: 720, fps: 60 };
+      const { tier } = validateLicense(cfg.license);
+      const ceiling = maxVideoForTier(tier);
+      if ((mode.width > ceiling.width || mode.height > ceiling.height || mode.fps > ceiling.fps) && !canUse("1080p60", tier)) {
+        res.writeHead(402, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, reason: "mode exceeds free tier (720p30); Pro unlocks 1080p60", tier }));
+        return;
+      }
+      const multi = (await listMonitors()).monitors.filter((m) => m.active).length >= 1;
+      if (multi && !canUse("multiMonitor", tier) && !extend) {
+        res.writeHead(402, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, reason: "multi-monitor requires Pro", tier }));
+        return;
+      }
+      const r = extend ? await ensureMonitor(mode, body.edid || "") : await addMonitor(mode, body.edid || "");
+      if (r.ok) {
+        syncVideoToMode(cfg.video, { width: r.monitor.width, height: r.monitor.height, fps: Math.min(r.monitor.fps, ceiling.fps) });
+        stats.fps = cfg.video.fps;
+      }
+      res.writeHead(r.ok ? 200 : 500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(r));
+      return;
+    }
+
+    if (url.pathname.startsWith("/displays/") && req.method === "DELETE") {
+      if (!authed(req, url)) { needAuth(res); return; }
+      const id = Number(url.pathname.split("/")[2]);
+      const r = await removeMonitor(id);
+      res.writeHead(r.ok ? 200 : 404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(r));
+      return;
+    }
+
+    if (url.pathname === "/capture" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, source: currentSource() }));
+      return;
+    }
+
+    if (url.pathname === "/capture" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!authed(req, url, body)) { needAuth(res); return; }
+      const r = selectSource(body);
+      res.writeHead(r.ok ? 200 : 400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(r));
+      return;
+    }
+
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "not found" }));
   });
 
-  return { server, stats };
+  return { server, stats, input, adaptive, report };
 }

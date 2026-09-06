@@ -17,16 +17,56 @@ All transports are plain TCP/IP. Video/input code must use
 `pickBest()`: probe RTT to each candidate, pick lowest. Priority on tie:
 `localhost` > `rndis` > `wifi`.
 
-## Host HTTP endpoints (Phase 0, no TLS on LAN yet — PIN required)
+## Host HTTP endpoints (Phase 2; LAN, PIN-gated)
 
-- `GET /info` → `{ name, version, transports[], video, qr }`
+Open (discovery + measurement): `GET /info`, `GET /ping`, `GET /stats`, `GET /best`.
+Paired only — send `x-extendo-token: <token|PIN>`, `?token=`, or body `token`:
+
+- `POST /pair` body `PairRequest` → `PairResponse` (5 fails/min/IP → HTTP 429, 30s lockout)
+- `GET /frames?token=` (SSE test pattern; Phase 1 H.264 replaces payload)
+- `POST /input` body `InputEvent` → injected via SendInput bridge (`tools/input-runner.ps1`); `touch`/`key` require Pro (402 on free), `mouse_*`/`scroll` free
+- `POST /report` body `{fps, drops}` → `{ok, video, adaptive}` — viewer heartbeat feeding the adaptive loop
+- `POST /quality` (`/displays`, `/capture` likewise gated — see §Display control)
+
+## Input mapping (normalized → absolute 0..65535, primary display)
+
+`touch down` = move + left-down; `touch` move = move; `touch up` = left-up.
+`mouse_move` = absolute move (or relative with `dx/dy`); `scroll dy` × −12 wheel units.
+`key` = `keybd_event(VK)` down/up via `key_code`. Runner is one persistent
+PowerShell process fed NDJSON on STDIN — never one spawn per event.
+
+## Adaptive (closed loop, host-side, cooldown 10s)
+
+Viewer reports observed `fps/drops` every 5s (`/report`); host tick re-probes
+RTT (`/best`) and runs: drop to 720p30 when RTT>80ms or drop-rate>5%;
+restore previous mode after 4 consecutive good checks (RTT<40ms, 0 drops).
+`POST /quality {"auto":false}` opts out (manual slider wins).
+
+## Shapes (JSON names = proto field names)
+
+- `GET /info` → `{ name, version, transports[], video, qr, tier, displays, displays_stub, capture }`
 - `GET /ping?t0=<client_ms>` → `{ t0, server_ts_ms }` (RTT = now - t0)
-- `GET /stats` → `Stats` JSON `{ rtt_ms, fps, drops, bitrate_kbps }`
-- `GET /frames` (SSE) → `data: {"seq":N,"server_ts_ms":T,"x":0..1,"y":0..1}` at video.fps.
-  Phase 0 test pattern (moving box). Phase 1 replaces payload with H.264
-  over UDP/RTP; field names stay stable.
-- `POST /pair` body `PairRequest` → `PairResponse`
-- `POST /input` body `InputEvent` → `{ ok:true }` (→ SendInput in Phase 2)
+- `GET /stats` → `Stats` + `uptime_s`
+- `GET /best` → `{ best, probed }` (RTT-probed transports)
+- `GET /frames` (SSE) → `data: {"seq":N,"server_ts_ms":T,"x":0..1,"y":0..1}` at video.fps
+
+## Display control (Phase 1 — true extend)
+
+Virtual monitor lifecycle over named pipe `\\.\pipe\extendo-vdd`
+(JSON lines, mirrored on HTTP so any client can drive it):
+
+- `{"cmd":"add","width":1280,"height":720,"fps":60,"edid":"phone-1080p"}` → `{"ok":true,"monitor":{"id":1,...}}`
+- `{"cmd":"remove","id":1}` → `{"ok":true}` (maps to `IddCxMonitorDeparture`)
+- `{"cmd":"list"}` → `{"ok":true,"monitors":[...]}`
+
+HTTP mirror: `GET /displays`, `POST /displays` (DisplayAdd), `DELETE /displays/:id`,
+`POST /capture` (CaptureSource select). Capture binds to the virtual monitor
+only; `monitor_id:-1` is the mirror fallback. Resolution changes re-negotiate
+`VideoConfig` with the viewer (see `/quality`).
+
+Reconnect: host watches interfaces + power resume; on new iface or resume it
+re-probes (`/best`), re-adds the monitor if departed, and viewers re-pair
+with the same token. No re-pairing needed on USB replug.
 
 ## Video
 
