@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>extendo web viewer (Phase 0)</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #0b0e14; color: #e2e8f0; margin: 16px; }
+  input, select, button { font-size: 14px; padding: 6px 8px; margin: 2px; }
+  #screen { width: 100%; max-width: 960px; border: 1px solid #334155; border-radius: 8px; }
+  #overlay { width: 100%; max-width: 960px; box-sizing: border-box; background: #111827; color: #93c5fd; border: 1px solid #334155; }
+</style>
+</head>
+<body>
+<h1>extendo web viewer</h1>
+<p>Phase 0 fallback client. Enter host shown by <code>node host/src/index.js</code>, paste token/PIN, Connect.</p>
+<div>
+  <input id="host" placeholder="http://192.168.1.10:9577" size="32" />
+  <input id="token" placeholder="token or PIN" size="20" />
+  <button id="connect">Connect</button>
+  <select id="quality"><option>1280x720</option><option>1920x1080</option></select>
+  <select id="fps"><option>30</option><option>60</option></select>
+  <button id="apply">Apply</button>
+  <button id="rotate">Rotate</button>
+</div>
+<p><canvas id="screen" width="320" height="180"></canvas></p>
+<p><input id="overlay" readonly value="rtt - · fps - · drops -" /></p>
+<script type="module" src="./src/viewer.ts"></script>
+</body>
+</html>

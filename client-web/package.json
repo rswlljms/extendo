@@ -1,0 +1,11 @@
+{
+  "name": "extendo-web",
+  "version": "0.1.0",
+  "description": "extendo browser fallback viewer (Phase 0 test-pattern client)",
+  "type": "module",
+  "scripts": {
+    "typecheck": "npx -y tsc --noEmit",
+    "serve": "node serve.js"
+  },
+  "license": "UNLICENSED"
+}
