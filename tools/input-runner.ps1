@@ -3,7 +3,7 @@
 .SYNOPSIS
   Persistent input runner for extendo (Phase 2). Reads NDJSON actions from
   STDIN and injects them via user32 (mouse_event / keybd_event).
-  Spawned once by host/src/input.js — never run by hand (no auth here;
+  Spawned once by host/src/input.js - never run by hand (no auth here;
   the host HTTP layer gates callers by token first).
 Protocol (one JSON object per line):
   {"a":"move","x":0..65535,"y":0..65535}  absolute mouse move

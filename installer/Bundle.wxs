@@ -1,0 +1,23 @@
+<!-- extendo Bundle (Phase 3) — chains at install time so no binaries live in git:
+     1. Node.js LTS (required to run the host; skipped if node >= 18 present)
+     2. Signed Virtual Display Driver fork (admin; manual fallback = -Vdd page)
+     3. extendo Package.wxs (this repo)
+     Fill DownloadUrl at release time after verifying checksums; keep the
+     exact URLs + SHA256 in the release notes, never in this file. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle Name="extendo" Version="0.4.0" Manufacturer="extendo"
+          UpgradeCode="9196CF8D-7B7B-465E-A54F-AE532FE8BDB7">
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication LicenseUrl="" Theme="hyperlinkLicense" />
+    </BootstrapperApplication>
+    <Chain>
+      <!-- <ExePackage Id="NodeLTS" DisplayName="Node.js LTS"
+                  DownloadUrl="FILL-AT-RELEASE" InstallCommand="/quiet"
+                  DetectCondition="node &gt;= 18" Permanent="yes" /> -->
+      <!-- <ExePackage Id="SignedVDD" DisplayName="Virtual Display Driver"
+                  DownloadUrl="FILL-AT-RELEASE" Permanent="yes" /> -->
+      <MsiPackage SourceFile="extendo.msi" Vital="yes" />
+    </Chain>
+  </Bundle>
+</Wix>

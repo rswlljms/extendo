@@ -3,8 +3,9 @@
 // Usage: open index.html, enter host (e.g. http://192.168.1.10:9577), Connect.
 
 interface VideoConfig { width: number; height: number; fps: number; bitrate_kbps: number; codec: string }
-interface Frame { seq: number; server_ts_ms: number; x: number; y: number }
+interface Frame { seq: number; server_ts_ms: number; x: number; y: number; monitor_id: number }
 interface Transport { kind: string; addr: string; port: number; rttMs: number }
+interface Monitor { id: number; width: number; height: number; fps: number; active: boolean; edid: string }
 
 const $ = (id: string): HTMLInputElement => document.getElementById(id) as HTMLInputElement;
 const hostEl = $("host"), tokenEl = $("token"), overlayEl = $("overlay");
@@ -13,6 +14,7 @@ const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
 
 let host = "";
 let authToken = "";
+let monitorId = 0; // 0 = default stream; N = bound virtual monitor (multi-phone)
 let frameCount = 0, lastFpsT = performance.now(), fps = 0, rttMs = -1, drops = 0, lastSeq = 0;
 let rotated = false;
 let adaptiveLevel = "";
@@ -53,7 +55,7 @@ function draw(f: Frame, video: VideoConfig): void {
   const bx = f.x * canvas.width, by = f.y * canvas.height;
   ctx.fillStyle = "#38bdf8"; ctx.fillRect(bx - 24, by - 24, 48, 48);
   ctx.fillStyle = "#e2e8f0"; ctx.font = "12px system-ui";
-  ctx.fillText(`seq ${f.seq}`, 8, 16);
+  ctx.fillText(`seq ${f.seq} mon ${f.monitor_id}`, 8, 16);
   overlayEl.value = `rtt ${rttMs}ms · fps ${fps} · drops ${drops} · ${W}x${H}${adaptiveLevel ? " · auto:" + adaptiveLevel : ""}`;
 }
 
@@ -69,6 +71,7 @@ async function connect(): Promise<void> {
   void pingLoop();
   void reportLoop();
   void renderTransports();
+  void renderMonitors(video);
   streamFrames(video);
 }
 
@@ -77,7 +80,7 @@ let reconnects = 0;
 
 function streamFrames(video: VideoConfig): void {
   es?.close();
-  es = new EventSource(`${host}/frames?token=${encodeURIComponent(authToken)}`);
+  es = new EventSource(`${host}/frames?token=${encodeURIComponent(authToken)}&monitor=${monitorId}`);
   es.onopen = () => { reconnects = 0; };
   es.onmessage = (e: MessageEvent) => draw(JSON.parse(e.data) as Frame, video);
   // USB replug / sleep / Wi-Fi drop: back off and resume without re-pairing.
@@ -90,7 +93,30 @@ function streamFrames(video: VideoConfig): void {
   };
 }
 
-// Phase 1: list probed transports with RTT; tap one to switch (Wi-Fi ↔ USB)
+// Phase 3 multi-phone: pick which virtual monitor this viewer follows.
+// Second simultaneous monitor is Pro-gated host-side; viewer just switches.
+async function renderMonitors(video: VideoConfig): Promise<void> {
+  try {
+    const r = await fetch(`${host}/info`);
+    if (!r.ok) return;
+    const { displays } = await r.json() as { displays: Monitor[] };
+    const bar = document.getElementById("monitors");
+    if (!bar || !displays) return;
+    bar.innerHTML = "";
+    for (const m of displays.filter((d) => d.active)) {
+      const b = document.createElement("button");
+      b.textContent = `mon ${m.id} ${m.width}x${m.height}`;
+      if (m.id === monitorId || (monitorId === 0 && m.id === displays[0]?.id)) b.style.border = "2px solid #38bdf8";
+      b.addEventListener("click", () => {
+        monitorId = m.id;
+        overlayEl.value = `following monitor ${m.id}`;
+        streamFrames(video);
+        void renderMonitors(video);
+      });
+      bar.appendChild(b);
+    }
+  } catch { /* ignore */ }
+}
 // without re-pairing — token stays the same, only the base URL changes.
 async function renderTransports(): Promise<void> {
   try {

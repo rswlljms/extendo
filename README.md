@@ -6,6 +6,12 @@ Full agent instructions: [`AGENTS.md`](AGENTS.md). Wire contract: [`proto/PROTOC
 ## Quick start (Phase 0, no driver yet)
 
 ```powershell
+# one-command dev setup: checks Node, generates PIN/token, shows your LAN IP
+powershell -ExecutionPolicy Bypass -File tools/install-dev.ps1
+# optional: -Firewall (admin, allow TCP 9577) -Startup (logon task) -Vdd (driver page)
+```
+
+```powershell
 # 1. host — signaling + transport picker + test-pattern stream
 node host/src/index.js
 # 2. probe interfaces (finds rndis tethering IP + localhost ADB target)

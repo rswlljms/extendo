@@ -157,6 +157,12 @@ describe("display endpoints (Phase 1 extend)", () => {
     assert.equal(del.status, 200);
   });
 
+  it("GET /frames rejects unknown monitor binding", async () => {
+    const r = await fetch(`${base}/frames?token=${cfg.token}&monitor=999`);
+    assert.equal(r.status, 400);
+    const anon = await fetch(`${base}/frames`);
+    assert.equal(anon.status, 401);
+  });
   it("POST /capture binds source to virtual monitor", async () => {
     const r = await fetch(`${base}/capture`, {
       method: "POST", headers: H(),
@@ -164,5 +170,21 @@ describe("display endpoints (Phase 1 extend)", () => {
     });
     assert.equal(r.status, 200);
     assert.equal((await r.json()).source.monitor_id, 1);
+  });
+
+  it("second simultaneous monitor needs Pro (rolls back arrival)", async () => {
+    __resetStub();
+    const first = await fetch(`${base}/displays`, {
+      method: "POST", headers: H(),
+      body: JSON.stringify({ mode: { width: 1280, height: 720, fps: 30 } }),
+    });
+    assert.equal(first.status, 200);
+    const second = await fetch(`${base}/displays`, {
+      method: "POST", headers: H(),
+      body: JSON.stringify({ mode: { width: 800, height: 600, fps: 30 } }),
+    });
+    assert.equal(second.status, 402);
+    const list = await (await fetch(`${base}/displays`, { headers: H() })).json();
+    assert.equal(list.monitors.length, 1); // rolled back, not leaked
   });
 });

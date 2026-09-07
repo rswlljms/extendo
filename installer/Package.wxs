@@ -1,0 +1,77 @@
+<!-- extendo installer — WiX v4 package (Phase 3).
+     UpgradeCode is FROZEN (one per product, never change it or upgrades break):
+     9196CF8D-7B7B-465E-A54F-AE532FE8BDB7
+     Build: installer/build.ps1 (needs .NET SDK + `dotnet tool restore`).
+     Signed VDD + adb.exe are NOT bundled (no binaries in git, AGENTS.md 7.2):
+     the Bundle downloads them at install time — see Bundle.wxs. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:fire="http://wixtoolset.org/schemas/v4/wxs/firewall"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Package Name="extendo" Language="1033" Version="0.4.0"
+           Manufacturer="extendo" UpgradeCode="9196CF8D-7B7B-465E-A54F-AE532FE8BDB7"
+           Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer extendo is installed." />
+    <Media Id="1" Cabinet="extendo.cab" EmbedCab="yes" />
+
+    <Feature Id="Main" Title="extendo host + viewer" Level="1">
+      <ComponentGroupRef Id="HostFiles" />
+      <ComponentRef Id="FirewallRule" />
+      <ComponentRef Id="Shortcuts" />
+    </Feature>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="extendo">
+
+          <ComponentGroup Id="HostFiles" Directory="INSTALLDIR">
+            <Component Id="HostCore" Guid="*" Bitness="always64">
+              <File Source="..\host\src\server.js" />
+              <File Source="..\host\src\index.js" />
+              <File Source="..\host\src\transport.js" />
+              <File Source="..\host\src\config.js" />
+              <File Source="..\host\src\license.js" />
+              <File Source="..\host\src\vdd.js" />
+              <File Source="..\host\src\capture.js" />
+              <File Source="..\host\src\iface.js" />
+              <File Source="..\host\src\input.js" />
+              <File Source="..\host\src\adaptive.js" />
+              <File Source="..\host\src\throttle.js" />
+              <File Source="..\host\package.json" />
+            </Component>
+            <!-- dist/viewer.js is compiled from src/viewer.ts by build.ps1 first -->
+            <Component Id="WebViewer" Guid="*" Bitness="always64">
+              <File Source="..\client-web\index.html" />
+              <File Source="..\client-web\serve.js" />
+              <File Source="..\client-web\dist\viewer.js" />
+            </Component>
+            <Component Id="Tools" Guid="*" Bitness="always64">
+              <File Source="..\tools\iface-probe.ps1" />
+              <File Source="..\tools\adb-reverse.ps1" />
+              <File Source="..\tools\diag-collect.ps1" />
+              <File Source="..\tools\vdd-control.ps1" />
+              <File Source="..\tools\input-runner.ps1" />
+              <File Source="..\tools\install-dev.ps1" />
+            </Component>
+          </ComponentGroup>
+
+          <Component Id="FirewallRule" Guid="*" Directory="INSTALLDIR" Bitness="always64">
+            <fire:FirewallException Id="ExtendoHost" Name="extendo host"
+                                    Protocol="tcp" Port="9577" Scope="localSubnet"
+                                    Profile="private" />
+          </Component>
+
+          <Component Id="Shortcuts" Guid="*" Directory="INSTALLDIR" Bitness="always64">
+            <RegistryValue Root="HKLM" Key="Software\extendo" Name="version"
+                           Value="0.4.0" Type="string" KeyPath="yes" />
+            <Shortcut Id="StartHost" Name="extendo host" Description="Start the extendo display host"
+                      Target="[System64Folder]node.exe" Arguments="&quot;[INSTALLDIR]host\src\index.js&quot;"
+                      WorkingDirectory="INSTALLDIR" />
+            <Shortcut Id="UninstallDocs" Name="extendo docs" Target="[INSTALLDIR]README.md" />
+          </Component>
+
+        </Directory>
+      </Directory>
+    </Directory>
+  </Package>
+</Wix>

@@ -48,7 +48,9 @@ restore previous mode after 4 consecutive good checks (RTT<40ms, 0 drops).
 - `GET /ping?t0=<client_ms>` → `{ t0, server_ts_ms }` (RTT = now - t0)
 - `GET /stats` → `Stats` + `uptime_s`
 - `GET /best` → `{ best, probed }` (RTT-probed transports)
-- `GET /frames` (SSE) → `data: {"seq":N,"server_ts_ms":T,"x":0..1,"y":0..1}` at video.fps
+- `GET /frames` (SSE) → `data: {"seq":N,"server_ts_ms":T,"monitor_id":M,"x":0..1,"y":0..1}` at video.fps.
+  `?monitor=<id>` binds one viewer to one virtual monitor (multi-phone);
+  unknown id → 400. Phase-shifted per monitor so multi-viewer routing is visible.
 
 ## Display control (Phase 1 — true extend)
 

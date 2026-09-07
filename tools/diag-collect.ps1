@@ -15,7 +15,19 @@ Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Format-Table -AutoSize Na
 Get-NetIPAddress -AddressFamily IPv4 | Format-Table -AutoSize IPAddress, InterfaceIndex | Out-File (Join-Path $out "ips.txt") -Append
 try { (Invoke-WebRequest -Uri "http://127.0.0.1:$HostPort/stats" -TimeoutSec 5).Content | Out-File (Join-Path $out "host-stats.json") }
 catch { "host not reachable on 127.0.0.1:$HostPort ($($_.Exception.Message))" | Out-File (Join-Path $out "host-stats.json") }
-try { (Invoke-WebRequest -Uri "http://127.0.0.1:$HostPort/info" -TimeoutSec 5).Content | Out-File (Join-Path $out "host-info.json") }
+try {
+  # /info embeds pairing tokens in QR payloads - redact before writing the bundle.
+  $info = (Invoke-WebRequest -Uri "http://127.0.0.1:$HostPort/info" -TimeoutSec 5).Content
+  $info = $info -replace '("token"\s*:\s*")[^"]+(")', '$1<redacted>$2' `
+                -replace '(token=)[^"&]+', '$1<redacted>'
+  $info | Out-File (Join-Path $out "host-info.json")
+}
 catch { "no /info" | Out-File (Join-Path $out "host-info.json") }
+$cfg = Join-Path $env:APPDATA "extendo\config.json"
+if (Test-Path -LiteralPath $cfg) {
+  # Config holds the secret token/PIN - bundle structure only, values redacted.
+  $c = (Get-Content $cfg -Raw) -replace '("(token|pin|key)"\s*:\s*")[^"]*(")', '$1<redacted>$3'
+  $c | Out-File (Join-Path $out "config-structure.json")
+}
 
-Write-Output "Diagnostics written to $out — attach host-stats.json + adapters.txt to bug reports."
+Write-Output "Diagnostics written to $out - attach host-stats.json + adapters.txt to bug reports."

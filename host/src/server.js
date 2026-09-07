@@ -12,7 +12,7 @@ import { createAdaptive } from "./adaptive.js";
 import { createThrottle } from "./throttle.js";
 import { qrPayload } from "./config.js";
 
-export const VERSION = "0.3.0";
+export const VERSION = "0.4.0";
 
 /**
  * @param {any} cfg config object (see config.js)
@@ -95,7 +95,18 @@ export function createHost(cfg) {
 
     if (url.pathname === "/frames" && req.method === "GET") {
       if (!authed(req, url)) { needAuth(res); return; }
-      // SSE test pattern: moving box, normalized coords. Viewer renders on canvas.
+      // Multi-phone: ?monitor=<id> binds this stream to one virtual monitor.
+      // Phase 2 pump is shared; frames carry monitor_id so Rust per-swapchain
+      // capture can route without changing the viewer contract.
+      const wantMon = Number(url.searchParams.get("monitor") || 0);
+      if (wantMon) {
+        const known = (await listMonitors()).monitors.some((m) => m.active && m.id === wantMon);
+        if (!known) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: `unknown monitor ${wantMon}` }));
+          return;
+        }
+      }
       res.writeHead(200, {
         "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive",
       });
@@ -104,8 +115,8 @@ export function createHost(cfg) {
         seq += 1;
         const t = Date.now() / 1000;
         const frame = {
-          seq, server_ts_ms: Date.now(),
-          x: 0.5 + 0.4 * Math.sin(t), y: 0.5 + 0.35 * Math.cos(t * 0.7),
+          seq, server_ts_ms: Date.now(), monitor_id: wantMon,
+          x: 0.5 + 0.4 * Math.sin(t + wantMon), y: 0.5 + 0.35 * Math.cos(t * 0.7),
         };
         res.write(`data: ${JSON.stringify(frame)}\n\n`);
       }, period);
@@ -218,14 +229,16 @@ export function createHost(cfg) {
         res.end(JSON.stringify({ ok: false, reason: "mode exceeds free tier (720p30); Pro unlocks 1080p60", tier }));
         return;
       }
-      const multi = (await listMonitors()).monitors.filter((m) => m.active).length >= 1;
-      if (multi && !canUse("multiMonitor", tier) && !extend) {
-        res.writeHead(402, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: false, reason: "multi-monitor requires Pro", tier }));
-        return;
-      }
       const r = extend ? await ensureMonitor(mode, body.edid || "") : await addMonitor(mode, body.edid || "");
-      if (r.ok) {
+      if (r.ok && !r.reused) {
+        // Second simultaneous monitor is a Pro feature (multi-phone).
+        const active = (await listMonitors()).monitors.filter((m) => m.active).length;
+        if (active > 1 && !canUse("multiMonitor", tier)) {
+          await removeMonitor(r.monitor.id); // roll back the arrival
+          res.writeHead(402, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, reason: "multi-monitor requires Pro", tier }));
+          return;
+        }
         syncVideoToMode(cfg.video, { width: r.monitor.width, height: r.monitor.height, fps: Math.min(r.monitor.fps, ceiling.fps) });
         stats.fps = cfg.video.fps;
       }

@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-06
+### Added
+- Multi-phone: `GET /frames?monitor=<id>` binds a viewer to one virtual
+  monitor (phase-tagged frames, viewer monitor switcher); second simultaneous
+  monitor requires Pro (arrival rolled back on free tier)
+- Installer: WiX v4 `installer/` project (frozen UpgradeCode, firewall rule,
+  shortcuts, version-sync check) + `Bundle.wxs` chaining Node/VDD downloads
+- Portable ZIP: `tools/make-portable.ps1` (compiles viewer, stages, zips)
+- One-command dev setup: `tools/install-dev.ps1` (Node check, PIN/token,
+  `-Firewall`/`-Startup`/`-Vdd`); `docs/install.md` covers ZIP/dev/MSI
+### Fixed
+- Diagnostics bundle redacts token/PIN from `/info` and config snapshots
+- PowerShell scripts are ASCII-only (PS 5.1 misparses UTF-8 without BOM)
+
 ## [0.3.0] - 2026-09-06
 ### Added
 - Input backchannel: viewer touch/keyboard → host SendInput bridge
