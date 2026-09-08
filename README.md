@@ -53,5 +53,5 @@ Invoke-RestMethod -Method Delete http://127.0.0.1:9577/displays/1
 
 ```powershell
 node --test host/tests/transport.test.js host/tests/license.test.js host/tests/server.test.js
-npx -y tsc --noEmit -p client-web/tsconfig.json
+npx -y -p typescript tsc --noEmit -p client-web/tsconfig.json
 ```

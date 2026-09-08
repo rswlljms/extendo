@@ -17,3 +17,8 @@ driver/*.inf
 driver/bin/
 # local diag bundles
 extendo-diag-*/
+# installer output — never commit built packages (AGENTS.md §7.2)
+installer/out/
+*.msi
+# WiX extension cache (downloaded binaries; restored by build.ps1)
+installer/.wix/

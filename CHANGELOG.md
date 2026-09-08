@@ -1,6 +1,14 @@
 # Changelog — extendo (curated, user-facing; newest on top)
 
 ## [Unreleased]
+### Fixed
+- Installer: start-menu shortcut finds Node via registry search and points at
+  the flat install layout (`[INSTALLDIR]\index.js`); docs shortcut ships
+  `README.md`; bundle consumes the versioned MSI via a build-time path, and
+  `build.ps1` now emits the bundle exe plus a four-file version-sync check
+- Build output ignored: `installer/out/` and `*.msi` are git-ignored (no
+  binaries in git); fixed `tsc` invocations to `npx -y -p typescript tsc`
+  (bare `npx -y tsc` resolves the wrong package)
 
 ## [0.4.0] - 2026-09-06
 ### Added

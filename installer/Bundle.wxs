@@ -3,7 +3,8 @@
      2. Signed Virtual Display Driver fork (admin; manual fallback = -Vdd page)
      3. extendo Package.wxs (this repo)
      Fill DownloadUrl at release time after verifying checksums; keep the
-     exact URLs + SHA256 in the release notes, never in this file. -->
+     exact URLs + SHA256 in the release notes, never in this file.
+     Build via installer/build.ps1, which passes -d MsiPath=<versioned msi>. -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
   <Bundle Name="extendo" Version="0.4.0" Manufacturer="extendo"
@@ -17,7 +18,7 @@
                   DetectCondition="node &gt;= 18" Permanent="yes" /> -->
       <!-- <ExePackage Id="SignedVDD" DisplayName="Virtual Display Driver"
                   DownloadUrl="FILL-AT-RELEASE" Permanent="yes" /> -->
-      <MsiPackage SourceFile="extendo.msi" Vital="yes" />
+      <MsiPackage SourceFile="$(var.MsiPath)" Vital="yes" />
     </Chain>
   </Bundle>
 </Wix>

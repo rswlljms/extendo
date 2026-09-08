@@ -14,64 +14,68 @@
     <MajorUpgrade DowngradeErrorMessage="A newer extendo is installed." />
     <Media Id="1" Cabinet="extendo.cab" EmbedCab="yes" />
 
+    <!-- Node.js is a prerequisite (the Bundle chains it); locate it for the shortcut. -->
+    <Property Id="NODEINSTALLDIR">
+      <RegistrySearch Id="FindNode" Root="HKLM" Key="SOFTWARE\Node.js" Name="InstallPath" Type="directory" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR NODEINSTALLDIR"
+            Message="Node.js 18+ is required (the extendo bundle installs it automatically, or see https://nodejs.org)." />
+
     <Feature Id="Main" Title="extendo host + viewer" Level="1">
       <ComponentGroupRef Id="HostFiles" />
       <ComponentRef Id="FirewallRule" />
       <ComponentRef Id="Shortcuts" />
     </Feature>
 
-    <Directory Id="TARGETDIR" Name="SourceDir">
-      <Directory Id="ProgramFiles64Folder">
-        <Directory Id="INSTALLDIR" Name="extendo">
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLDIR" Name="extendo" />
+    </StandardDirectory>
 
-          <ComponentGroup Id="HostFiles" Directory="INSTALLDIR">
-            <Component Id="HostCore" Guid="*" Bitness="always64">
-              <File Source="..\host\src\server.js" />
-              <File Source="..\host\src\index.js" />
-              <File Source="..\host\src\transport.js" />
-              <File Source="..\host\src\config.js" />
-              <File Source="..\host\src\license.js" />
-              <File Source="..\host\src\vdd.js" />
-              <File Source="..\host\src\capture.js" />
-              <File Source="..\host\src\iface.js" />
-              <File Source="..\host\src\input.js" />
-              <File Source="..\host\src\adaptive.js" />
-              <File Source="..\host\src\throttle.js" />
-              <File Source="..\host\package.json" />
-            </Component>
-            <!-- dist/viewer.js is compiled from src/viewer.ts by build.ps1 first -->
-            <Component Id="WebViewer" Guid="*" Bitness="always64">
-              <File Source="..\client-web\index.html" />
-              <File Source="..\client-web\serve.js" />
-              <File Source="..\client-web\dist\viewer.js" />
-            </Component>
-            <Component Id="Tools" Guid="*" Bitness="always64">
-              <File Source="..\tools\iface-probe.ps1" />
-              <File Source="..\tools\adb-reverse.ps1" />
-              <File Source="..\tools\diag-collect.ps1" />
-              <File Source="..\tools\vdd-control.ps1" />
-              <File Source="..\tools\input-runner.ps1" />
-              <File Source="..\tools\install-dev.ps1" />
-            </Component>
-          </ComponentGroup>
+    <ComponentGroup Id="HostFiles" Directory="INSTALLDIR">
+      <Component Id="HostCore" Bitness="always64" Guid="428EAFFD-E345-4055-8A5F-A0E975B62A1D">
+        <File Source="..\host\src\server.js" />
+        <File Source="..\host\src\index.js" />
+        <File Source="..\host\src\transport.js" />
+        <File Source="..\host\src\config.js" />
+        <File Source="..\host\src\license.js" />
+        <File Source="..\host\src\vdd.js" />
+        <File Source="..\host\src\capture.js" />
+        <File Source="..\host\src\iface.js" />
+        <File Source="..\host\src\input.js" />
+        <File Source="..\host\src\adaptive.js" />
+        <File Source="..\host\src\throttle.js" />
+        <File Source="..\host\package.json" />
+        <File Source="..\README.md" />
+      </Component>
+      <!-- dist/viewer.js is compiled from src/viewer.ts by build.ps1 first -->
+      <Component Id="WebViewer" Bitness="always64" Guid="ABF8AB54-F2C6-461E-8A9B-39EE9F583626">
+        <File Source="..\client-web\index.html" />
+        <File Source="..\client-web\serve.js" />
+        <File Source="..\client-web\dist\viewer.js" />
+      </Component>
+      <Component Id="Tools" Bitness="always64" Guid="E2A43D55-6A89-4D8E-8954-F52E8CCD17FB">
+        <File Source="..\tools\iface-probe.ps1" />
+        <File Source="..\tools\adb-reverse.ps1" />
+        <File Source="..\tools\diag-collect.ps1" />
+        <File Source="..\tools\vdd-control.ps1" />
+        <File Source="..\tools\input-runner.ps1" />
+        <File Source="..\tools\install-dev.ps1" />
+      </Component>
+    </ComponentGroup>
 
-          <Component Id="FirewallRule" Guid="*" Directory="INSTALLDIR" Bitness="always64">
-            <fire:FirewallException Id="ExtendoHost" Name="extendo host"
-                                    Protocol="tcp" Port="9577" Scope="localSubnet"
-                                    Profile="private" />
-          </Component>
+    <Component Id="FirewallRule" Directory="INSTALLDIR" Bitness="always64" Guid="6F5C2E1A-3D4B-4C7E-9A21-8B0F7E2D5C11">
+      <fire:FirewallException Id="ExtendoHost" Name="extendo host"
+                              Protocol="tcp" Port="9577" Scope="localSubnet"
+                              Profile="private" />
+    </Component>
 
-          <Component Id="Shortcuts" Guid="*" Directory="INSTALLDIR" Bitness="always64">
-            <RegistryValue Root="HKLM" Key="Software\extendo" Name="version"
-                           Value="0.4.0" Type="string" KeyPath="yes" />
-            <Shortcut Id="StartHost" Name="extendo host" Description="Start the extendo display host"
-                      Target="[System64Folder]node.exe" Arguments="&quot;[INSTALLDIR]host\src\index.js&quot;"
-                      WorkingDirectory="INSTALLDIR" />
-            <Shortcut Id="UninstallDocs" Name="extendo docs" Target="[INSTALLDIR]README.md" />
-          </Component>
-
-        </Directory>
-      </Directory>
-    </Directory>
+    <Component Id="Shortcuts" Directory="INSTALLDIR" Bitness="always64">
+      <RegistryValue Root="HKLM" Key="Software\extendo" Name="version"
+                     Value="0.4.0" Type="string" KeyPath="yes" />
+      <Shortcut Id="StartHost" Name="extendo host" Description="Start the extendo display host"
+                 Target="[NODEINSTALLDIR]node.exe" Arguments="&quot;[INSTALLDIR]index.js&quot;"
+                 WorkingDirectory="INSTALLDIR" />
+      <Shortcut Id="UninstallDocs" Name="extendo docs" Target="[INSTALLDIR]README.md" />
+    </Component>
   </Package>
 </Wix>

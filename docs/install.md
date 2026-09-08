@@ -19,7 +19,9 @@ Three ways, simplest first. All LAN-only; no account needed.
 
 `installer/build.ps1` needs the .NET SDK (`dotnet tool restore` pulls WiX 4).
 It checks version sync across `host/package.json`, `client-web/package.json`,
-and `Package.wxs`, compiles the viewer, and emits `installer/out/extendo-<ver>.msi`.
+`Package.wxs`, and `Bundle.wxs`, compiles the viewer, and emits
+`installer/out/extendo-<ver>.msi` plus the `extendo-setup-<ver>.exe` bundle
+(which chains Node LTS + signed VDD downloads at install time).
 Sign the MSI with your EV cert before release (`signtool`), and fill the
 `Bundle.wxs` download URLs (Node LTS, signed VDD) with verified SHA256 at
 release time. UpgradeCode is frozen — never change it.
