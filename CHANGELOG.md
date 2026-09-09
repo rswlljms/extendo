@@ -1,6 +1,17 @@
 # Changelog — extendo (curated, user-facing; newest on top)
 
 ## [Unreleased]
+
+## [0.5.0] - 2026-09-08
+### Added
+- Rust capture core `host/core` (WGC → JPEG → MJPEG, AGENTS.md section 4 browser-fallback path):
+  pure-Rust SIMD JPEG (no ffmpeg), 720p/1080p ≤60fps, downscale+RGB in one pass (4–7ms encode on test box),
+  loopback `host_port+1` with `GET /video.mjpg` (multipart), `/frame.jpg`, `/health`
+- Node host spawns/proxies the core: `POST /capture {"backend":"wgc"}` starts it,
+  `GET /video.mjpg`/`/frame.jpg` proxy through the host port+token, `/core/health`
+  and `GET /info core/capture` expose it; `POST /quality` re-spawns on cap change
+- Web viewer prefers MJPEG (real screen) when `GET /info core.ok`, falls back to SSE test pattern; `<img id="mjpeg">` with auto-fallback on error
+- 33-test Rust suite (`cargo test`) covering `fit_within`, stride-aware downscale, JPEG SOI/EOI, MJPEG framing, CLI validation and token checks; `cargo clippy -- -D warnings` clean
 ### Fixed
 - Installer: start-menu shortcut finds Node via registry search and points at
   the flat install layout (`[INSTALLDIR]\index.js`); docs shortcut ships

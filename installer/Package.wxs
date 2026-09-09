@@ -8,7 +8,7 @@
      xmlns:fire="http://wixtoolset.org/schemas/v4/wxs/firewall"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <Package Name="extendo" Language="1033" Version="0.4.0"
+  <Package Name="extendo" Language="1033" Version="0.5.0"
            Manufacturer="extendo" UpgradeCode="9196CF8D-7B7B-465E-A54F-AE532FE8BDB7"
            Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer extendo is installed." />
@@ -70,8 +70,8 @@
     </Component>
 
     <Component Id="Shortcuts" Directory="INSTALLDIR" Bitness="always64">
-      <RegistryValue Root="HKLM" Key="Software\extendo" Name="version"
-                     Value="0.4.0" Type="string" KeyPath="yes" />
+            <RegistryValue Root="HKLM" Key="Software\extendo" Name="version"
+                     Value="0.5.0" Type="string" KeyPath="yes" />
       <Shortcut Id="StartHost" Name="extendo host" Description="Start the extendo display host"
                  Target="[NODEINSTALLDIR]node.exe" Arguments="&quot;[INSTALLDIR]index.js&quot;"
                  WorkingDirectory="INSTALLDIR" />

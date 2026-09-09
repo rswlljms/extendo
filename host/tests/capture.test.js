@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { selectSource, currentSource, syncVideoToMode } from "../src/capture.js";
+import { selectSource, currentSource, syncVideoToMode, coreAvailable } from "../src/capture.js";
 
 describe("capture source", () => {
   it("defaults to test backend on virtual-mirror fallback", () => {
@@ -14,9 +14,20 @@ describe("capture source", () => {
     assert.equal(currentSource().monitor_id, 1);
   });
 
-  it("rejects unknown backends; wgc/dxgi need Rust core", () => {
+  it("rejects unknown backends; wgc/dxgi need Rust core when not built", () => {
     assert.equal(selectSource({ backend: "nope" }).ok, false);
-    assert.match(selectSource({ backend: "wgc" }).reason, /Rust core/);
+    if (coreAvailable()) {
+      // Core is built (cargo build --release) -> wgc should be selectable.
+      const r = selectSource({ backend: "wgc" });
+      assert.equal(r.ok, true);
+      assert.equal(r.source.backend, "wgc");
+      // dxgi still not implemented.
+      assert.match(selectSource({ backend: "dxgi" }).reason, /Rust core/);
+      // reset to test for other suites
+      selectSource({ backend: "test" });
+    } else {
+      assert.match(selectSource({ backend: "wgc" }).reason, /Rust core/);
+    }
   });
 
   it("syncs VideoConfig to monitor mode", () => {

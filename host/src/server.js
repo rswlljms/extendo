@@ -6,13 +6,14 @@ import { createServer } from "node:http";
 import { listCandidates, probeCandidates, pickBest } from "./transport.js";
 import { canUse, validateLicense, maxVideoForTier } from "./license.js";
 import { addMonitor, removeMonitor, listMonitors, ensureMonitor, EDID_PROFILES } from "./vdd.js";
-import { currentSource, selectSource, syncVideoToMode } from "./capture.js";
+import { currentSource, selectSource, syncVideoToMode, ensureCore, fetchCoreHealth, coreAvailable } from "./capture.js";
 import { createInput } from "./input.js";
 import { createAdaptive } from "./adaptive.js";
 import { createThrottle } from "./throttle.js";
 import { qrPayload } from "./config.js";
+import { get as httpGet } from "node:http";
 
-export const VERSION = "0.4.0";
+export const VERSION = "0.5.0";
 
 /**
  * @param {any} cfg config object (see config.js)
@@ -59,6 +60,7 @@ export function createHost(cfg) {
     if (url.pathname === "/info" && req.method === "GET") {
       const cands = listCandidates(cfg.port);
       const displays = await listMonitors();
+      const core = await fetchCoreHealth(800).catch(() => null);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
         name: cfg.device_name, version: VERSION,
@@ -67,6 +69,7 @@ export function createHost(cfg) {
         tier: validateLicense(cfg.license).tier,
         displays: displays.monitors, displays_stub: displays.stub,
         capture: currentSource(),
+        core: core ? { ok: true, ...core } : { ok: false, reason: coreAvailable() ? "not running" : "not built" },
       }));
       return;
     }
@@ -202,6 +205,8 @@ export function createHost(cfg) {
       };
       stats.fps = cfg.video.fps;
       stats.bitrate_kbps = cfg.video.bitrate_kbps;
+      // If the real capture core is running, restart it so the new caps take effect.
+      if (currentSource().backend === "wgc") ensureCore(cfg);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, video: cfg.video }));
       return;
@@ -241,6 +246,7 @@ export function createHost(cfg) {
         }
         syncVideoToMode(cfg.video, { width: r.monitor.width, height: r.monitor.height, fps: Math.min(r.monitor.fps, ceiling.fps) });
         stats.fps = cfg.video.fps;
+        if (currentSource().backend === "wgc") ensureCore(cfg);
       }
       res.writeHead(r.ok ? 200 : 500, { "Content-Type": "application/json" });
       res.end(JSON.stringify(r));
@@ -265,9 +271,60 @@ export function createHost(cfg) {
     if (url.pathname === "/capture" && req.method === "POST") {
       const body = await readBody(req);
       if (!authed(req, url, body)) { needAuth(res); return; }
-      const r = selectSource(body);
+      const r = selectSource(body, cfg);
       res.writeHead(r.ok ? 200 : 400, { "Content-Type": "application/json" });
       res.end(JSON.stringify(r));
+      return;
+    }
+
+    // Rust core MJPEG proxy (AGENTS.md browser-fallback path). The core listens
+    // on cfg.port+1 loopback; the Node host proxies so viewers need only one
+    // host:port+token and CORS stays simple.
+    const proxyCore = (corePath) => {
+      if (!authed(req, url)) { needAuth(res); return true; }
+      const corePort = (cfg.port || 9577) + 1;
+      const token = encodeURIComponent(cfg.token || "");
+      const target = `http://127.0.0.1:${corePort}${corePath}${corePath.includes("?") ? "&" : "?"}token=${token}`;
+      const proxy = httpGet(target, (upstream) => {
+        if (upstream.statusCode && upstream.statusCode >= 400) {
+          // Core returns JSON errors; surface them as-is.
+          let body = "";
+          upstream.on("data", (c) => { body += c; });
+          upstream.on("end", () => {
+            res.writeHead(upstream.statusCode || 502, { "Content-Type": upstream.headers["content-type"] || "application/json", "Access-Control-Allow-Origin": "*" });
+            res.end(body || `{"error":"core ${upstream.statusCode}"}`);
+          });
+          return;
+        }
+        res.writeHead(upstream.statusCode || 200, {
+          "Content-Type": upstream.headers["content-type"] || "application/octet-stream",
+          "Cache-Control": "no-store",
+          "Access-Control-Allow-Origin": "*",
+        });
+        upstream.pipe(res);
+        upstream.on("error", () => { try { res.end(); } catch { /* noop */ } });
+      });
+      proxy.on("error", () => {
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "capture core not running (POST /capture {\"backend\":\"wgc\"})" }));
+      });
+      req.on("close", () => { try { proxy.destroy(); } catch { /* noop */ } });
+      return true;
+    };
+
+    if ((url.pathname === "/video.mjpg" || url.pathname === "/frame.jpg") && req.method === "GET") {
+      if (proxyCore(url.pathname)) return;
+    }
+
+    if (url.pathname === "/core/health" && req.method === "GET") {
+      const h = await fetchCoreHealth(1500);
+      if (!h) {
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, reason: "core not running" }));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(h));
       return;
     }
 

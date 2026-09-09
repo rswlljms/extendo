@@ -3,7 +3,7 @@
 .SYNOPSIS
   Build the extendo installer (needs .NET SDK; run once: dotnet tool restore).
   Validates version sync (host/package.json == client-web/package.json == wxs)
-  before invoking WiX. Produces installer/out/extendo-0.4.0.msi (+ bundle exe).
+  before invoking WiX. Produces installer/out/extendo-0.5.0.msi (+ bundle exe).
 #>
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot

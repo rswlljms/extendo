@@ -1,5 +1,6 @@
 node_modules/
 dist/
+host/core/target/
 *.log
 .DS_Store
 # secrets / local state — never commit

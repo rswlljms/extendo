@@ -5,6 +5,7 @@ import { loadConfig, saveConfig } from "./config.js";
 import { createHost } from "./server.js";
 import { watchInterfaces } from "./iface.js";
 import { probeCandidates, pickBest, listCandidates } from "./transport.js";
+import { coreAvailable, ensureCore, stopCore } from "./capture.js";
 
 const args = process.argv.slice(2);
 const portIdx = args.indexOf("--port");
@@ -15,6 +16,13 @@ const { server, stats, adaptive, report } = createHost(cfg);
 server.listen(cfg.port, "0.0.0.0", () => {
   saveConfig(cfg);
   console.log(`extendo host up on 0.0.0.0:${cfg.port} (PIN ${cfg.pin})`);
+  if (coreAvailable()) {
+    const r = ensureCore(cfg);
+    if (r.ok) console.log(`capture core: wgc on 127.0.0.1:${cfg.port + 1} (pid ${r.pid}) — GET /video.mjpg`);
+    else console.log(`capture core: ${r.reason}`);
+  } else {
+    console.log("capture core: not built (test-pattern fallback) — cargo build --release -p extendo-core");
+  }
 });
 
 // Closed loop (Phase 2 adaptive): re-probe transports, feed RTT + viewer
@@ -48,4 +56,5 @@ const watcher = watchInterfaces({
   },
 });
 
-process.on("SIGINT", () => { watcher.stop(); server.close(() => process.exit(0)); });
+process.on("SIGINT", () => { watcher.stop(); stopCore(); server.close(() => process.exit(0)); });
+process.on("exit", () => { try { stopCore(); } catch { /* noop */ } });

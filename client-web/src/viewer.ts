@@ -11,6 +11,7 @@ const $ = (id: string): HTMLInputElement => document.getElementById(id) as HTMLI
 const hostEl = $("host"), tokenEl = $("token"), overlayEl = $("overlay");
 const canvas = document.getElementById("screen") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+const mjpegEl = document.getElementById("mjpeg") as HTMLImageElement;
 
 let host = "";
 let authToken = "";
@@ -18,6 +19,7 @@ let monitorId = 0; // 0 = default stream; N = bound virtual monitor (multi-phone
 let frameCount = 0, lastFpsT = performance.now(), fps = 0, rttMs = -1, drops = 0, lastSeq = 0;
 let rotated = false;
 let adaptiveLevel = "";
+let mjpegInterval: number | null = null;
 
 function api(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${host}${path}`, {
@@ -72,6 +74,15 @@ async function connect(): Promise<void> {
   void reportLoop();
   void renderTransports();
   void renderMonitors(video);
+  // Prefer the Rust core MJPEG stream (real pixels) when it is running;
+  // fall back to the Node SSE test pattern otherwise.
+  try {
+    const info = await fetch(`${host}/info`).then((r) => r.json()) as { core?: { ok: boolean } };
+    if (info.core?.ok) {
+      startMjpeg(video);
+      return;
+    }
+  } catch { /* ignore, fall back to SSE */ }
   streamFrames(video);
 }
 
@@ -79,6 +90,10 @@ let es: EventSource | null = null;
 let reconnects = 0;
 
 function streamFrames(video: VideoConfig): void {
+  if (mjpegInterval !== null) { window.clearInterval(mjpegInterval); mjpegInterval = null; }
+  mjpegEl.style.display = "none";
+  mjpegEl.removeAttribute("src");
+  canvas.style.display = "block";
   es?.close();
   es = new EventSource(`${host}/frames?token=${encodeURIComponent(authToken)}&monitor=${monitorId}`);
   es.onopen = () => { reconnects = 0; };
@@ -91,6 +106,32 @@ function streamFrames(video: VideoConfig): void {
     overlayEl.value = `reconnecting… (attempt ${reconnects})`;
     setTimeout(() => { if (host) streamFrames(video); }, Math.min(5000, 500 * reconnects));
   };
+}
+
+function startMjpeg(video: VideoConfig): void {
+  // Stop any SSE stream and hide its canvas.
+  es?.close();
+  canvas.style.display = "none";
+  mjpegEl.style.display = "block";
+  const W = rotated ? video.height : video.width;
+  const H = rotated ? video.width : video.height;
+  mjpegEl.style.aspectRatio = `${W} / ${H}`;
+  if (mjpegInterval !== null) window.clearInterval(mjpegInterval);
+  const tick = (): void => {
+    overlayEl.value = `rtt ${rttMs}ms · ${W}x${H} mjpeg${adaptiveLevel ? " · auto:" + adaptiveLevel : ""}`;
+  };
+  mjpegInterval = window.setInterval(tick, 1000);
+  mjpegEl.onerror = () => {
+    if (mjpegInterval !== null) window.clearInterval(mjpegInterval);
+    overlayEl.value = "mjpeg failed, falling back to test pattern";
+    mjpegEl.style.display = "none";
+    canvas.style.display = "block";
+    streamFrames(video);
+  };
+  mjpegEl.onload = () => tick();
+  mjpegEl.src = `${host}/video.mjpg?token=${encodeURIComponent(authToken)}`;
+  overlayEl.value = `mjpeg ${W}x${H} — connecting…`;
+  tick();
 }
 
 // Phase 3 multi-phone: pick which virtual monitor this viewer follows.

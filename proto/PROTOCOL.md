@@ -72,10 +72,20 @@ with the same token. No re-pairing needed on USB replug.
 
 ## Video
 
-- Codec `h264`, baseline/main, **no B-frames**, 720p/1080p, 30/60fps, 2–12 Mbps.
-- Phase 0 serves the SSE test pattern so transport/RTT/overlay can be
-  verified without a capture driver. Real capture plugs into the same
-  `Transport` + `VideoConfig` in Phase 1 (Rust core).
+- Codec `h264` (native Android, baseline/main, **no B-frames**, 720p/1080p, 30/60fps, 2–12 Mbps) and
+  **MJPEG** browser fallback (multipart/x-mixed-replace, AGENTS.md section 4 sanctioned).
+- Phase 0 served the SSE test pattern. 0.5.0 adds the Rust core (`host/core`,
+  Windows Graphics Capture → JPEG → MJPEG, pure-Rust encoder, no ffmpeg yet):
+  the core listens loopback on `host_port+1` (default 9578) and the Node host
+  proxies it so viewers need only one `host:port` + token:
+  - `GET /video.mjpg?token=` → `multipart/x-mixed-replace; boundary=extendoframe`
+    each part `Content-Type: image/jpeg` + `Content-Length` + JPEG bytes
+  - `GET /frame.jpg?token=` → single `image/jpeg` snapshot (smoke tests)
+  - `GET /health` (no auth, loopback only) → `{ok, source, monitor, width, height, fps, quality, captured, encoded, dropped, clients, encode_ms, capture_ms}`
+  - `GET /core/health` (Node proxy) + `capture.core` in `GET /info`
+  - `POST /capture {"backend":"wgc"}` spawns the core (needs `cargo build --release -p extendo-core`); `"test"` stops it and falls back to SSE
+  - `POST /quality` and monitor-arrival re-spawn the core with the new caps when `backend` is `wgc`
+- H.264 over UDP/RTP reuses the same WGC capture path once the encoder lands; MJPEG stays as the browser fallback.
 
 ## Rules
 

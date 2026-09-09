@@ -7,7 +7,7 @@
      Build via installer/build.ps1, which passes -d MsiPath=<versioned msi>. -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
-  <Bundle Name="extendo" Version="0.4.0" Manufacturer="extendo"
+  <Bundle Name="extendo" Version="0.5.0" Manufacturer="extendo"
           UpgradeCode="9196CF8D-7B7B-465E-A54F-AE532FE8BDB7">
     <BootstrapperApplication>
       <bal:WixStandardBootstrapperApplication LicenseUrl="" Theme="hyperlinkLicense" />

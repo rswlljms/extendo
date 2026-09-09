@@ -1,6 +1,6 @@
 {
   "name": "extendo-host",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "extendo host service — Phase 0 (TypeScript runnable core; Rust port path kept identical)",
   "type": "module",
   "main": "src/index.js",

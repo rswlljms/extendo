@@ -1,0 +1,27 @@
+[package]
+name = "extendo-core"
+version = "0.5.0"
+edition = "2021"
+description = "extendo capture core - Windows Graphics Capture -> JPEG -> MJPEG (AGENTS.md Phase A)"
+license = "UNLICENSED"
+publish = false
+
+[dependencies]
+# WGC capture (AGENTS.md section 4: windows-capture is the specified backend).
+windows-capture = "2.0.1"
+# Pure-Rust SIMD JPEG encoder: no ffmpeg/vcpkg toolchain needed for the browser
+# fallback path. H.264/NVENC lands later for the native Android client.
+jpeg-encoder = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time"] }
+
+[lib]
+name = "extendo_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "extendo-core"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
