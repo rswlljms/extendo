@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 ### Added
+- Android milestone 1 (needs device test): Gradle build (8.14/AGP 8.5.1,
+  minSdk 28, Compose) + native viewer — `POST /pair`, `/video.mjpg` render
+  with RTT/fps overlay, transport switcher, quality presets, rotate,
+  touch/keyboard backchannel, foreground service, automation extras; 16 JVM
+  unit tests green, `assembleDebug` builds
 - H.264 via Media Foundation (0.6.0b, live-verified): `--codec h264` encodes
   WGC → NV12 → inbox `CMSH264EncoderMFT` (baseline, no B-frames, CBR,
   low-latency); `GET /video.h264` streams Annex B (SPS/PPS on every IDR,

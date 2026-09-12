@@ -3,6 +3,12 @@ dist/
 host/core/target/
 *.log
 .DS_Store
+# android local config + build caches (AGENTS.md: never commit local state)
+local.properties
+client-android/.gradle/
+client-android/build/
+client-android/app/build/
+client-android/.idea/
 # secrets / local state — never commit
 .env
 .env.local
