@@ -72,6 +72,8 @@ export function ensureCore(cfg) {
     "--height", String(cfg.video.height),
     "--fps", String(cfg.video.fps),
     "--quality", "70",
+    "--codec", cfg.video.codec === "h264" ? "h264" : "mjpeg",
+    "--bitrate", String(cfg.video.bitrate_kbps || 4000),
   ].join(" ");
   if (coreProc && coreProc.exitCode === null && corePort === wantPort && coreArgs === wantArgs) {
     return { ok: true, pid: coreProc.pid || undefined };

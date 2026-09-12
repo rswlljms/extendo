@@ -312,7 +312,7 @@ export function createHost(cfg) {
       return true;
     };
 
-    if ((url.pathname === "/video.mjpg" || url.pathname === "/frame.jpg") && req.method === "GET") {
+    if ((url.pathname === "/video.mjpg" || url.pathname === "/frame.jpg" || url.pathname === "/video.h264") && req.method === "GET") {
       if (proxyCore(url.pathname)) return;
     }
 

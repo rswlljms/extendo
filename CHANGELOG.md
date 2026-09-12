@@ -1,6 +1,18 @@
 # Changelog — extendo (curated, user-facing; newest on top)
 
 ## [Unreleased]
+### Added
+- H.264 via Media Foundation (0.6.0b, live-verified): `--codec h264` encodes
+  WGC → NV12 → inbox `CMSH264EncoderMFT` (baseline, no B-frames, CBR,
+  low-latency); `GET /video.h264` streams Annex B (SPS/PPS on every IDR,
+  keyframe-primed), proxied by the Node host; `/health` gains add-only
+  `codec`/`bitrate_kbps`/`error`; cross-mode `/frame.jpg`/`/video.mjpg`
+  return 409 with the right endpoint. Verified on hardware: SPS Baseline
+  1280x720 progressive, P/IDR-only slices, ~23fps, MJPEG `/frame.jpg`
+  regression-checked (SOI/EOI intact)
+- H.264 scaffold (0.6.0a): core `--codec mjpeg|h264` + `--bitrate
+  500..12000`, `h264.rs` config/framing (baseline/main, no B-frames, Annex B
+  NAL split, keyframe detection, bitrate ladder)
 
 ## [0.5.0] - 2026-09-08
 ### Added

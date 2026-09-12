@@ -69,6 +69,84 @@ pub fn downscale_to_rgb(
     out
 }
 
+/// Byte size of an NV12 frame: full-size Y plane + half-size interleaved UV.
+#[must_use]
+pub fn nv12_frame_size(w: u32, h: u32) -> usize {
+    (w as usize) * (h as usize) * 3 / 2
+}
+
+/// Nearest-neighbour downscale from a padded RGBA source straight into NV12.
+///
+/// This is the H.264 input path (the MF encoder takes NV12, not RGB): resize,
+/// alpha strip and BT.601 RGB→YCbCr happen in one pass so we stay inside the
+/// AGENTS.md section 7.3 encode budget with no intermediate RGB buffer.
+///
+/// Uses full-range (JPEG) BT.601: `Y=(77R+150G+29B)>>8`,
+/// `U=((-43R-84G+127B)>>8)+128`, `V=((127R-106G-21B)>>8)+128`.
+/// Chroma is 2x2-box-averaged. NV12 needs even dimensions, so odd targets are
+/// clamped down by one (a 405-wide fit becomes 404); minimum 2x2.
+#[must_use]
+pub fn downscale_rgba_to_nv12(
+    src: &[u8],
+    src_w: u32,
+    src_h: u32,
+    src_stride: usize,
+    dst_w: u32,
+    dst_h: u32,
+) -> Vec<u8> {
+    let w = (dst_w & !1).max(2) as usize;
+    let h = (dst_h & !1).max(2) as usize;
+    let mut out = vec![0u8; w * h * 3 / 2];
+    if src_w == 0 || src_h == 0 {
+        return out;
+    }
+    let (y_plane, uv_plane) = out.split_at_mut(w * h);
+
+    // Luma: one Y per pixel.
+    for y in 0..h {
+        let sy = y * src_h as usize / h;
+        let row = sy * src_stride;
+        let dst_row = y * w;
+        for x in 0..w {
+            let sx = x * src_w as usize / w;
+            let si = row + sx * 4;
+            let (r, g, b) = if si + 2 < src.len() {
+                (src[si] as i32, src[si + 1] as i32, src[si + 2] as i32)
+            } else {
+                (0, 0, 0) // torn/partial frame: black, never a panic
+            };
+            y_plane[dst_row + x] = ((77 * r + 150 * g + 29 * b) >> 8) as u8;
+        }
+    }
+
+    // Chroma: one interleaved U,V pair per 2x2 block, averaged.
+    for y in (0..h).step_by(2) {
+        for x in (0..w).step_by(2) {
+            let mut su = 0i32;
+            let mut sv = 0i32;
+            for dy in 0..2 {
+                let sy = (y + dy) * src_h as usize / h;
+                let row = sy * src_stride;
+                for dx in 0..2 {
+                    let sx = (x + dx) * src_w as usize / w;
+                    let si = row + sx * 4;
+                    let (r, g, b) = if si + 2 < src.len() {
+                        (src[si] as i32, src[si + 1] as i32, src[si + 2] as i32)
+                    } else {
+                        (0, 0, 0)
+                    };
+                    su += (-43 * r - 84 * g + 127 * b) >> 8;
+                    sv += (127 * r - 106 * g - 21 * b) >> 8;
+                }
+            }
+            let di = (y / 2) * w + x;
+            uv_plane[di] = (su / 4 + 128).clamp(0, 255) as u8;
+            uv_plane[di + 1] = (sv / 4 + 128).clamp(0, 255) as u8;
+        }
+    }
+    out
+}
+
 /// Encode tight RGB to baseline JPEG. Quality is 1-100.
 ///
 /// # Errors
@@ -198,5 +276,67 @@ mod tests {
         let low = encode_jpeg(&rgb, w, h, 20).expect("low");
         let high = encode_jpeg(&rgb, w, h, 95).expect("high");
         assert!(high.len() > low.len(), "q95 {} !> q20 {}", high.len(), low.len());
+    }
+
+    fn rgba_frame(w: usize, h: usize, px: [u8; 4]) -> Vec<u8> {
+        let mut src = vec![0u8; w * h * 4];
+        for chunk in src.chunks_exact_mut(4) {
+            chunk.copy_from_slice(&px);
+        }
+        src
+    }
+
+    #[test]
+    fn nv12_size_is_y_plus_half_uv() {
+        assert_eq!(nv12_frame_size(1280, 720), 1280 * 720 * 3 / 2);
+        assert_eq!(nv12_frame_size(1920, 1080), 1920 * 1080 * 3 / 2);
+    }
+
+    #[test]
+    fn nv12_primary_colors_match_bt601() {
+        // 2x2 uniform frames: Y plane uniform, UV plane a single pair.
+        for (px, y, u, v) in [
+            ([0u8, 0, 0, 255], 0u8, 128u8, 128u8), // black
+            ([255, 255, 255, 255], 255, 128, 128), // white
+            ([255, 0, 0, 255], 76, 85, 254),       // red
+            ([0, 255, 0, 255], 149, 44, 22),       // green
+            ([0, 0, 255, 255], 28, 254, 107),      // blue
+        ] {
+            let nv12 = downscale_rgba_to_nv12(&rgba_frame(2, 2, px), 2, 2, 2 * 4, 2, 2);
+            assert_eq!(nv12.len(), 6, "2x2 NV12 is 4 Y + 2 UV");
+            assert!(nv12[0..4].iter().all(|&p| p == y), "{px:?}: Y={:?}, want {y}", &nv12[0..4]);
+            assert_eq!((nv12[4], nv12[5]), (u, v), "{px:?}: UV mismatch");
+        }
+    }
+
+    #[test]
+    fn nv12_honours_stride_and_downscales() {
+        // 4x4 red source with padded rows -> 2x2 stays red.
+        let (w, h) = (4usize, 4usize);
+        let stride = w * 4 + 16;
+        let mut src = vec![0u8; stride * h];
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * stride + x * 4;
+                src[i..i + 4].copy_from_slice(&[255, 0, 0, 255]);
+            }
+        }
+        let nv12 = downscale_rgba_to_nv12(&src, 4, 4, stride, 2, 2);
+        assert_eq!(nv12.len(), 6);
+        assert!(nv12[0..4].iter().all(|&p| p == 76));
+        assert_eq!((nv12[4], nv12[5]), (85, 254));
+    }
+
+    #[test]
+    fn nv12_clamps_odd_dimensions_to_even() {
+        // A 405-wide fit (odd) must come out 404 wide: NV12 needs even dims.
+        let nv12 = downscale_rgba_to_nv12(&rgba_frame(8, 8, [9, 9, 9, 255]), 8, 8, 8 * 4, 5, 7);
+        assert_eq!(nv12.len(), nv12_frame_size(4, 6));
+    }
+
+    #[test]
+    fn nv12_truncated_source_yields_black_not_panic() {
+        let nv12 = downscale_rgba_to_nv12(&[1, 2, 3], 64, 64, 64 * 4, 8, 8);
+        assert_eq!(nv12.len(), nv12_frame_size(8, 8));
     }
 }

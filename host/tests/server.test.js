@@ -86,6 +86,15 @@ describe("host HTTP contract", () => {
     }
   });
 
+  it("GET /video.h264 requires token even when the core is down (502 only after auth)", async () => {
+    const anon = await fetch(`${base}/video.h264`);
+    assert.equal(anon.status, 401);
+    // Authed but no core running (test backend): 502 with a clear reason.
+    const r = await fetch(`${base}/video.h264?token=${cfg.token}`);
+    assert.equal(r.status, 502);
+    assert.match((await r.json()).error, /not running/);
+  });
+
   it("POST /input routes mouse (free) but gates touch (Pro)", async () => {
     const mouse = await fetch(`${base}/input`, {
       method: "POST", headers: H(),

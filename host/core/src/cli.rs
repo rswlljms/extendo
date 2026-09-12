@@ -16,6 +16,12 @@ pub struct Args {
     pub height: u32,
     pub fps: u32,
     pub quality: u8,
+    /// Stream codec: "mjpeg" (browser fallback, current) or "h264"
+    /// (native Android; Media Foundation milestone, see h264.rs).
+    pub codec: String,
+    /// Target bitrate for H.264 in kbps (AGENTS.md v1: 2000-12000 typical,
+    /// hard ceiling 500-12000 so tests can probe the floor).
+    pub bitrate_kbps: u32,
 }
 
 impl Default for Args {
@@ -31,6 +37,8 @@ impl Default for Args {
             height: 720,
             fps: 30,
             quality: 70,
+            codec: "mjpeg".to_string(),
+            bitrate_kbps: 4000,
         }
     }
 }
@@ -66,6 +74,10 @@ impl Args {
                 "--quality" => {
                     out.quality = need(val)?.parse().map_err(|_| "bad --quality".to_string())?;
                 }
+                "--codec" => out.codec = need(val)?.to_lowercase(),
+                "--bitrate" => {
+                    out.bitrate_kbps = need(val)?.parse().map_err(|_| "bad --bitrate".to_string())?;
+                }
                 other => return Err(format!("unknown flag {other}")),
             }
             i += 2;
@@ -94,6 +106,12 @@ impl Args {
         }
         if self.quality < 1 || self.quality > 100 {
             return Err("--quality must be 1..=100".to_string());
+        }
+        if self.codec != "mjpeg" && self.codec != "h264" {
+            return Err("--codec must be mjpeg|h264".to_string());
+        }
+        if self.bitrate_kbps < 500 || self.bitrate_kbps > 12000 {
+            return Err("--bitrate must be 500..=12000 kbps (v1 cap)".to_string());
         }
         Ok(())
     }
@@ -132,6 +150,7 @@ mod tests {
         let a = args(&[
             "--port", "9600", "--bind", "0.0.0.0", "--token", "abc", "--monitor", "2", "--width",
             "1920", "--height", "1080", "--fps", "60", "--quality", "80",
+            "--codec", "h264", "--bitrate", "8000",
         ])
         .expect("parse");
         assert_eq!(a.port, 9600);
@@ -139,6 +158,8 @@ mod tests {
         assert_eq!(a.token, "abc");
         assert_eq!(a.monitor, 2);
         assert_eq!((a.width, a.height, a.fps, a.quality), (1920, 1080, 60, 80));
+        assert_eq!(a.codec, "h264");
+        assert_eq!(a.bitrate_kbps, 8000);
     }
 
     #[test]
@@ -166,6 +187,10 @@ mod tests {
         assert!(args(&["--fps", "120"]).is_err(), "v1 caps at 60fps");
         assert!(args(&["--width", "3840", "--height", "2160"]).is_err(), "no 4K in v1");
         assert!(args(&["--quality", "0"]).is_err());
+        assert!(args(&["--codec", "hevc"]).is_err(), "v1 is h264/mjpeg only");
+        assert!(args(&["--codec", "H264"]).is_ok(), "codec flag case-insensitive");
+        assert!(args(&["--bitrate", "100"]).is_err());
+        assert!(args(&["--bitrate", "50000"]).is_err());
     }
 
     #[test]

@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use extendo_core::{capture, cli::Args, server, JpegFrame, Stats};
+use extendo_core::{capture, cli::Args, server, Stats, VideoFrame};
 use tokio::sync::watch;
 
 #[tokio::main]
@@ -40,7 +40,7 @@ async fn main() -> std::process::ExitCode {
         .unwrap_or_else(|_| format!("monitor#{}", cfg.monitor));
 
     let stats = Arc::new(Stats::default());
-    let (tx, rx) = watch::channel::<Option<JpegFrame>>(None);
+    let (tx, rx) = watch::channel::<Option<VideoFrame>>(None);
 
     if let Err(e) = capture::spawn(monitor, cfg.clone(), tx, Arc::clone(&stats)) {
         eprintln!("extendo-core: cannot start capture thread: {e}");
@@ -67,5 +67,7 @@ extendo-core - Windows Graphics Capture -> JPEG -> MJPEG
   --height <px>     max height (default 720,  v1 cap 1080)
   --fps <n>         frame cap  (default 30, v1 cap 60)
   --quality <1-100> JPEG quality (default 70)
+  --codec <name>    mjpeg|h264 (default mjpeg; h264 serves 501 until MF lands)
+  --bitrate <kbps>  H.264 target 500..12000 (default 4000)
 
-Routes: GET /video.mjpg  GET /frame.jpg  GET /health";
+Routes: GET /video.mjpg  GET /frame.jpg  GET /health  GET /video.h264 (501 until MF)";

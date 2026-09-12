@@ -2,13 +2,17 @@
 name = "extendo-core"
 version = "0.5.0"
 edition = "2021"
-description = "extendo capture core - Windows Graphics Capture -> JPEG -> MJPEG (AGENTS.md Phase A)"
+description = "extendo capture core - Windows Graphics Capture -> MJPEG / H.264 (AGENTS.md host core)"
 license = "UNLICENSED"
 publish = false
 
 [dependencies]
 # WGC capture (AGENTS.md section 4: windows-capture is the specified backend).
 windows-capture = "2.0.1"
+# Media Foundation H.264 encoder MFT (AGENTS.md section 4 MF fallback).
+# Same `windows` major.minor as windows-capture pulls so features unify and
+# only one copy compiles.
+windows = { version = "0.62", features = ["Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Variant", "Win32_System_Ole", "Win32_Foundation"] }
 # Pure-Rust SIMD JPEG encoder: no ffmpeg/vcpkg toolchain needed for the browser
 # fallback path. H.264/NVENC lands later for the native Android client.
 jpeg-encoder = "0.7"

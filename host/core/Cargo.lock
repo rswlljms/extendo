@@ -57,6 +57,7 @@ version = "0.5.0"
 dependencies = [
  "jpeg-encoder",
  "tokio",
+ "windows",
  "windows-capture",
 ]
 

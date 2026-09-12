@@ -14,7 +14,7 @@ use tokio::sync::watch;
 
 use crate::cli::Args;
 use crate::mjpeg;
-use crate::{JpegFrame, Stats};
+use crate::{H264Frame, JpegFrame, Stats, VideoFrame};
 
 /// Cap on the request head we will buffer; a client sending more than this is
 /// not a viewer we want to serve.
@@ -104,16 +104,25 @@ pub fn token_ok(expected: &str, provided: Option<&str>) -> bool {
 /// Returns the bind error if the address is unavailable.
 pub async fn serve(
     cfg: Args,
-    rx: watch::Receiver<Option<JpegFrame>>,
+    rx: watch::Receiver<Option<VideoFrame>>,
     stats: Arc<Stats>,
     source: String,
 ) -> std::io::Result<()> {
     let listener = TcpListener::bind((cfg.bind.as_str(), cfg.port)).await?;
     println!(
-        "extendo-core: http://{}:{}  source={}  {}x{}@{} q{}",
-        cfg.bind, cfg.port, source, cfg.width, cfg.height, cfg.fps, cfg.quality
+        "extendo-core: http://{}:{}  source={}  {}x{}@{} q{} codec={} {}kbps",
+        cfg.bind,
+        cfg.port,
+        source,
+        cfg.width,
+        cfg.height,
+        cfg.fps,
+        cfg.quality,
+        cfg.codec,
+        cfg.bitrate_kbps,
     );
     println!("  GET /video.mjpg  (stream)   GET /frame.jpg  (single)   GET /health");
+    println!("  GET /video.h264  (Annex B bytestream; 409 unless --codec h264)");
     loop {
         let (stream, _peer) = listener.accept().await?;
         let cfg = cfg.clone();
@@ -135,7 +144,7 @@ pub async fn serve(
 async fn handle(
     mut stream: TcpStream,
     cfg: Args,
-    mut rx: watch::Receiver<Option<JpegFrame>>,
+    mut rx: watch::Receiver<Option<VideoFrame>>,
     stats: Arc<Stats>,
     source: String,
 ) -> std::io::Result<()> {
@@ -184,9 +193,14 @@ async fn handle(
 
     match req.path.as_str() {
         "/frame.jpg" => {
+            if cfg.codec == "h264" {
+                let r = mjpeg::text_response(409, "Conflict", "application/json", "{\"error\":\"core is in h264 mode (GET /video.h264)\"}");
+                stream.write_all(r.as_bytes()).await?;
+                return Ok(());
+            }
             stats.clients.fetch_add(1, Ordering::Relaxed);
             // Wait for the first encoded frame (capture skips work with 0 clients).
-            let frame = wait_for_frame(&mut rx).await;
+            let frame = wait_for_mjpeg(&mut rx).await;
             stats.clients.fetch_sub(1, Ordering::Relaxed);
             match frame {
                 Some(f) => {
@@ -201,8 +215,27 @@ async fn handle(
             Ok(())
         }
         "/video.mjpg" => {
+            if cfg.codec == "h264" {
+                let r = mjpeg::text_response(409, "Conflict", "application/json", "{\"error\":\"core is in h264 mode (GET /video.h264)\"}");
+                stream.write_all(r.as_bytes()).await?;
+                return Ok(());
+            }
             stats.clients.fetch_add(1, Ordering::Relaxed);
             let result = stream_mjpeg(&mut stream, &mut rx).await;
+            stats.clients.fetch_sub(1, Ordering::Relaxed);
+            result
+        }
+        // Native-Android path: raw Annex B bytestream (see PROTOCOL.md).
+        // SPS/PPS ride along on every keyframe, so a client joining
+        // mid-stream scans start codes and starts at the next IDR.
+        "/video.h264" => {
+            if cfg.codec != "h264" {
+                let r = mjpeg::text_response(409, "Conflict", "application/json", "{\"error\":\"core is in mjpeg mode (GET /video.mjpg)\"}");
+                stream.write_all(r.as_bytes()).await?;
+                return Ok(());
+            }
+            stats.clients.fetch_add(1, Ordering::Relaxed);
+            let result = stream_h264(&mut stream, &mut rx).await;
             stats.clients.fetch_sub(1, Ordering::Relaxed);
             result
         }
@@ -216,8 +249,8 @@ async fn handle(
 
 /// Wait up to ~2s for the first frame so a client that connects before capture
 /// warms up gets a picture instead of an error.
-async fn wait_for_frame(rx: &mut watch::Receiver<Option<JpegFrame>>) -> Option<JpegFrame> {
-    if let Some(f) = rx.borrow_and_update().clone() {
+async fn wait_for_mjpeg(rx: &mut watch::Receiver<Option<VideoFrame>>) -> Option<JpegFrame> {
+    if let Some(VideoFrame::Mjpeg(f)) = rx.borrow_and_update().clone() {
         return Some(f);
     }
     for _ in 0..20 {
@@ -225,7 +258,26 @@ async fn wait_for_frame(rx: &mut watch::Receiver<Option<JpegFrame>>) -> Option<J
             .await
             .is_ok()
         {
-            if let Some(f) = rx.borrow_and_update().clone() {
+            if let Some(VideoFrame::Mjpeg(f)) = rx.borrow_and_update().clone() {
+                return Some(f);
+            }
+        }
+    }
+    None
+}
+
+/// Wait up to ~2s for the first H.264 access unit (encoder warms up on the
+/// first captured frames; SPS/PPS+IDR arrive within a GOP).
+async fn wait_for_h264(rx: &mut watch::Receiver<Option<VideoFrame>>) -> Option<H264Frame> {
+    if let Some(VideoFrame::H264(f)) = rx.borrow_and_update().clone() {
+        return Some(f);
+    }
+    for _ in 0..20 {
+        if tokio::time::timeout(std::time::Duration::from_millis(100), rx.changed())
+            .await
+            .is_ok()
+        {
+            if let Some(VideoFrame::H264(f)) = rx.borrow_and_update().clone() {
                 return Some(f);
             }
         }
@@ -235,7 +287,7 @@ async fn wait_for_frame(rx: &mut watch::Receiver<Option<JpegFrame>>) -> Option<J
 
 async fn stream_mjpeg(
     stream: &mut TcpStream,
-    rx: &mut watch::Receiver<Option<JpegFrame>>,
+    rx: &mut watch::Receiver<Option<VideoFrame>>,
 ) -> std::io::Result<()> {
     stream.write_all(mjpeg::stream_headers().as_bytes()).await?;
     stream.flush().await?;
@@ -247,7 +299,7 @@ async fn stream_mjpeg(
             return Ok(()); // capture ended
         }
         let frame = rx.borrow_and_update().clone();
-        let Some(f) = frame else { continue };
+        let Some(VideoFrame::Mjpeg(f)) = frame else { continue };
         if f.seq == last_seq {
             continue;
         }
@@ -255,6 +307,55 @@ async fn stream_mjpeg(
         stream.write_all(mjpeg::part_header(f.bytes.len()).as_bytes()).await?;
         stream.write_all(&f.bytes).await?;
         stream.write_all(mjpeg::PART_TRAILER).await?;
+        stream.flush().await?;
+    }
+}
+
+/// Annex B access units back-to-back, flushed per unit. Self-delimiting via
+/// start codes, so the client needs no length prefix (see h264.rs).
+async fn stream_h264(
+    stream: &mut TcpStream,
+    rx: &mut watch::Receiver<Option<VideoFrame>>,
+) -> std::io::Result<()> {
+    stream
+        .write_all(
+            b"HTTP/1.1 200 OK\r\nContent-Type: video/h264\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
+        )
+        .await?;
+    stream.flush().await?;
+    // Prime with a keyframe so a fresh client can decode immediately instead
+    // of waiting for the next GOP (bounded: fall back to the first unit seen).
+    let mut first: Option<H264Frame> = None;
+    for _ in 0..30 {
+        match wait_for_h264(rx).await {
+            Some(f) => {
+                first = Some(f.clone());
+                if f.keyframe {
+                    break;
+                }
+            }
+            None => break,
+        }
+    }
+    let Some(first) = first else {
+        let r = mjpeg::text_response(503, "Service Unavailable", "application/json", "{\"error\":\"no frame yet\"}");
+        stream.write_all(r.as_bytes()).await?;
+        return Ok(());
+    };
+    stream.write_all(&first.bytes).await?;
+    stream.flush().await?;
+    let mut last_seq = first.seq;
+    loop {
+        if rx.changed().await.is_err() {
+            return Ok(()); // capture ended
+        }
+        let frame = rx.borrow_and_update().clone();
+        let Some(VideoFrame::H264(f)) = frame else { continue };
+        if f.seq == last_seq {
+            continue;
+        }
+        last_seq = f.seq;
+        stream.write_all(&f.bytes).await?;
         stream.flush().await?;
     }
 }

@@ -86,6 +86,25 @@ with the same token. No re-pairing needed on USB replug.
   - `POST /capture {"backend":"wgc"}` spawns the core (needs `cargo build --release -p extendo-core`); `"test"` stops it and falls back to SSE
   - `POST /quality` and monitor-arrival re-spawn the core with the new caps when `backend` is `wgc`
 - H.264 over UDP/RTP reuses the same WGC capture path once the encoder lands; MJPEG stays as the browser fallback.
+- 0.6.0a scaffold (no pixels yet): core accepts `--codec mjpeg|h264` +
+  `--bitrate 500..12000` (v1 caps enforced in `cli.rs` + `h264.rs`); `h264.rs`
+  holds `H264Config` (baseline/main, **bframes=0 enforced**), the adaptive
+  bitrate ladder, and Annex B framing (start-code scan, NAL split/type,
+  IDR/SPS/PPS keyframe detection) for the future RTP packetizer / MediaCodec
+  path.
+- 0.6.0b MF encoder (live-verified 2026-09-12, 720p30): `--codec h264`
+  captures WGC → NV12 (`frame.rs`, BT.601 one-pass) → inbox
+  `CMSH264EncoderMFT` (baseline profile, B-frames=0, CBR, low-latency, GOP 2s)
+  → `GET /video.h264` serves a raw Annex B bytestream (`Content-Type:
+  video/h264`, token-gated, proxied by the Node host): access units
+  back-to-back, flushed per unit, SPS/PPS prefixed to every IDR so mid-stream
+  join works (first byte `00 00 00 01 67 42…`). Stream primes on a keyframe.
+  Wire-verified: SPS profile_idc=66 Baseline, 1280x720 progressive,
+  P/IDR slices only (no B-slices), AUD delimiters. Static desktop undershoots
+  the CBR target (~0.8Mbps vs 4Mbps cap — good for LAN); `/health` reports
+  `codec` + `bitrate_kbps` + `error` (all add-only). In h264 mode,
+  `/frame.jpg` and `/video.mjpg` return 409 pointing at `/video.h264`
+  (and vice versa in mjpeg mode).
 
 ## Rules
 
